@@ -38,6 +38,15 @@ class Snake(pygame.sprite.Sprite):
 			self.direction = SN_D
 		elif keys[KEYS[self.id][2]] and self.direction != SN_R:
 			self.direction = SN_L
+		else:
+			if (keys[KEYS[self.id][0]] and self.direction == SN_D \
+					or keys[KEYS[self.id][3]] and self.direction == SN_L \
+					or keys[KEYS[self.id][1]] and self.direction == SN_U \
+					or keys[KEYS[self.id][2]] and self.direction == SN_R) and self.len > 0:
+				trail.add(Mine((self.rect.x, self.rect.y),
+						self.direction,
+						self.len))
+				self.len -= 1
 		if self.direction == SN_D:
 			self.rect.y += BLOCH
 		elif self.direction == SN_U:
@@ -112,6 +121,38 @@ class BigApple(pygame.sprite.Sprite):
 					* (BLOCH * 2)
 		if collides:
 			self.kill()
+
+class Mine(pygame.sprite.Sprite):
+	def __init__(self, pos, direction, leng):
+		super(type(self), self).__init__()
+		self.direction = direction
+		self.len = leng
+		self.pos = list(pos)
+		self.image = pygame.Surface(BLOCS)
+		self.image.fill((255, 255, 255))
+		self.rect = self.image.get_rect()
+		self.rect.x, self.rect.y = pos
+		self.done = False
+		self.life = BIGAPPLE_TIME
+
+	def update(self):
+		if self.len <= 0 and not self.done:
+			if self.direction in (SN_R, SN_L):
+				self.image = pygame.Surface((BLOCW, BLOCH * 3))
+				self.pos[1] -= BLOCH
+			else:
+				self.image = pygame.Surface((BLOCW * 3, BLOCH))
+				self.pos[0] -= BLOCW
+			self.image.fill((255, 255, 255))
+			self.rect = self.image.get_rect()
+			self.rect.x, self.rect.y = self.pos
+			self.done = True
+		elif self.len <= 0:
+			self.life -= 1
+			if self.life <= 0:
+				self.kill()
+		else:
+			self.len -= 1
 
 pygame.init()
 SCREEN = pygame.display.set_mode(SIZE)
