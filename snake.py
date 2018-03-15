@@ -12,6 +12,8 @@ SN_D = 'd'
 KEYS = [[K_UP, K_DOWN, K_LEFT, K_RIGHT],
 	[K_w, K_s, K_a, K_d]]
 KEYS_OCC = set((0,))
+BIGAPPLE_TIME = 8 * FPS
+DEDAPPLE_FREQ = 6
 
 class Snake(pygame.sprite.Sprite):
 	def __init__(self, sid=0):
@@ -67,20 +69,58 @@ class Apple(pygame.sprite.Sprite):
 		self.image.fill((255, 0, 0))
 		self.rect = self.image.get_rect()
 		self.rect.x, self.rect.y = 0, 0 #will be changed once updated
+		self.poison = False
+		self.poisonlen = 0
 
 	def update(self):
 		global snake
+		if self.poison:
+			self.poisonlen += 1
+		if self.poisonlen > BIGAPPLE_TIME:
+			self.poison = False
+			self.poisonlen = 0
+			self.image.fill((255, 0, 0))
 		for snak in pygame.sprite.spritecollide(self, snake, False):
-			snak.len += 1
-			self.rect.x = random.randint(0, WIDTH) // BLOCW * BLOCW
-			self.rect.y = random.randint(0, HEIGHT) // BLOCH * BLOCH
+			snak.len += (-1 if self.poison else 1)
+			self.poison = random.randint(0, DEDAPPLE_FREQ) == 1
+			if self.poison:
+				self.image.fill((192, 0, 0))
+			else:
+				self.image.fill((255, 0, 0))
+			self.poisonlen = 0
+			self.rect.x = random.randint(0, WIDTH - 1) // BLOCW * BLOCW
+			self.rect.y = random.randint(0, HEIGHT - 1) // BLOCH * BLOCH
+
+class BigApple(pygame.sprite.Sprite):
+	def __init__(self):
+		super(type(self), self).__init__()
+		self.image = pygame.Surface((BLOCW * 2, BLOCH * 2))
+		self.image.fill((255, 255, 0))
+		self.rect = self.image.get_rect()
+		self.rect.x, self.rect.y = 0, 0 #will be changed once updated
+
+	def update(self):
+		global snake
+		collides = pygame.sprite.spritecollide(self, snake, False)
+		for snak in collides:
+			snak.len += 4
+			self.rect.x = random.randint(0, WIDTH) \
+					// (BLOCW * 2) \
+					* (BLOCW * 2)
+			self.rect.y = random.randint(0, HEIGHT) \
+					// (BLOCH * 2) \
+					* (BLOCH * 2)
+		if collides:
+			self.kill()
 
 pygame.init()
 SCREEN = pygame.display.set_mode(SIZE)
 snake = pygame.sprite.RenderPlain(Snake(0))
 trail = pygame.sprite.RenderPlain()
 apple = pygame.sprite.RenderPlain(Apple())
+thebigapple = BigApple()
 clock = pygame.time.Clock()
+frames = 0
 
 def mktext(surf, text, pos, size=15, color=(255, 255, 255)):
 	font = pygame.font.SysFont('monospace', size)
@@ -123,6 +163,11 @@ try:
 					idx = len(KEYS) - 1
 					KEYS_OCC.add(idx)
 				snake.add(Snake(idx))
+		if frames % BIGAPPLE_TIME == 0:
+			if apple.has(thebigapple):
+				apple.remove(thebigapple)
+			else:
+				apple.add(thebigapple)
 		SCREEN.fill((0, 0, 0))
 		snake.update()
 		trail.update()
@@ -136,5 +181,6 @@ try:
 		apple.draw(SCREEN)
 		pygame.display.flip()
 		clock.tick(FPS)
+		frames += 1
 finally:
 	pygame.quit()
