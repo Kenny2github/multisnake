@@ -3,7 +3,7 @@ import pygame
 from pygame.locals import *
 
 BLOCS = BLOCW, BLOCH = 20, 20
-SIZE = WIDTH, HEIGHT = BLOCW * 50, BLOCH * 50
+SIZE = WIDTH, HEIGHT = 60 * BLOCW, 35 * BLOCH
 FPS = 25
 SN_L = 'l'
 SN_R = 'r'
@@ -77,7 +77,8 @@ class Apple(pygame.sprite.Sprite):
 		self.image = pygame.Surface(BLOCS)
 		self.image.fill((255, 0, 0))
 		self.rect = self.image.get_rect()
-		self.rect.x, self.rect.y = 0, 0 #will be changed once updated
+		self.rect.x = random.randint(0, WIDTH - 1) // BLOCW * BLOCW
+		self.rect.y = random.randint(0, HEIGHT - 1) // BLOCH * BLOCH
 		self.poison = False
 		self.poisonlen = 0
 
@@ -106,17 +107,18 @@ class BigApple(pygame.sprite.Sprite):
 		self.image = pygame.Surface((BLOCW * 2, BLOCH * 2))
 		self.image.fill((255, 255, 0))
 		self.rect = self.image.get_rect()
-		self.rect.x, self.rect.y = 0, 0 #will be changed once updated
+		self.rect.x = random.randint(0, WIDTH - 1) // (BLOCW * 2) * (BLOCW * 2)
+		self.rect.y = random.randint(0, HEIGHT - 1) // (BLOCH * 2) * (BLOCH * 2)
 
 	def update(self):
 		global snake
 		collides = pygame.sprite.spritecollide(self, snake, False)
 		for snak in collides:
 			snak.len += 4
-			self.rect.x = random.randint(0, WIDTH) \
+			self.rect.x = random.randint(0, WIDTH - 1) \
 					// (BLOCW * 2) \
 					* (BLOCW * 2)
-			self.rect.y = random.randint(0, HEIGHT) \
+			self.rect.y = random.randint(0, HEIGHT - 1) \
 					// (BLOCH * 2) \
 					* (BLOCH * 2)
 		if collides:
@@ -169,12 +171,33 @@ def mktext(surf, text, pos, size=15, color=(255, 255, 255)):
 	surf.blit(label, pos)
 
 try:
+	SCREEN.fill((0, 0, 0))
+	mktext(SCREEN, 'Space to spawn a new snake.', (0, 0))
+	mktext(SCREEN, 'Controls for first two snakes are arrow keys and WASD.', (0, BLOCH))
+	mktext(SCREEN, 'Attempt to move backwards to make a landmine and subtract your length.', (0, BLOCH * 2))
+	mktext(SCREEN, 'If you hit anything white except a snake head you die.', (0, BLOCH * 3))
+	mktext(SCREEN, 'At any point, Escape or close the window to quit.', (0, BLOCH * 4))
+	mktext(SCREEN, 'Space to continue. Watch out for poison apples.', (0, BLOCH * 5))
+	pygame.display.flip()
+	while 1:
+		for e in pygame.event.get():
+			if e.type == QUIT or e.type == KEYDOWN and e.key == K_ESCAPE:
+				raise SystemExit(0)
+			if e.type == KEYDOWN and e.key == K_SPACE:
+				raise KeyboardInterrupt
+except KeyboardInterrupt:
+	pass
+except SystemExit:
+	pygame.quit()
+	raise
+
+try:
 	while 1:
 		scorestr = ''
 		scores = {}
 		for snak in snake:
 			scores[snak.id] = snak.len
-		scores = scores.items()
+		scores = list(scores.items())
 		scores.sort(key=lambda s: s[0])
 		for sn, sc in scores:
 			scorestr += 'Snake {}: {}; '.format(sn, sc)
