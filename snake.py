@@ -206,7 +206,7 @@ try:
 		for e in pygame.event.get():
 			if e.type == QUIT or e.type == KEYDOWN and e.key == K_ESCAPE:
 				raise SystemExit(0)
-			if e.type == KEYDOWN and e.key == K_n:
+			if e.type == KEYDOWN and e.key == K_SPACE:
 				idx = -1
 				for i in range(len(KEYS)):
 					if i not in KEYS_OCC:
