@@ -19,7 +19,11 @@ class Snake(pygame.sprite.Sprite):
 	def __init__(self, sid=0):
 		super(type(self), self).__init__()
 		self.image = pygame.Surface(BLOCS)
-		self.image.fill((255, 255, 255))
+		self.image.fill((
+                        random.randint(128, 255),
+                        random.randint(128, 255),
+                        random.randint(128, 255)
+                ))
 		self.rect = self.image.get_rect()
 		self.rect.x, self.rect.y = 0, 0
 		self.direction = SN_R
