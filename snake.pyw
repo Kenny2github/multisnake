@@ -1,6 +1,8 @@
+import time
 import random
 from os import getpid
 from pypresence import Presence
+from pypresence.exceptions import InvalidPipe
 import pygame
 from pygame.locals import *
 
@@ -171,6 +173,11 @@ thebigapple = BigApple()
 clock = pygame.time.Clock()
 frames = 0
 RPC = Presence('511398745057787905')
+try:
+    RPC.connect()
+except (AttributeError, InvalidPipe):
+    RPC = None
+status = {'pid': getpid(), 'large_image': 'python-logo'}
 
 def mktext(surf, text, pos, size=15, color=(255, 255, 255)):
     font = pygame.font.SysFont('monospace', size)
@@ -178,6 +185,8 @@ def mktext(surf, text, pos, size=15, color=(255, 255, 255)):
     surf.blit(label, pos)
 
 try:
+    if RPC:
+        RPC.update(details='In Intro', **status)
     SCREEN.fill((0, 0, 0))
     mktext(SCREEN, 'Space to spawn a new snake.', (0, 0))
     mktext(SCREEN, 'Controls for first two snakes are arrow keys and WASD.', (0, BLOCH))
@@ -199,8 +208,7 @@ except SystemExit:
     raise
 
 try:
-    RPC.connect()
-    status = {'pid': getpid(), 'large_image': 'python-logo'}
+    status['start'] = int(time.time())
     while 1:
         scorestr = ''
         scores = {}
@@ -244,7 +252,8 @@ try:
         if frames % FPS == 0:
             status['details'] = 'Competitive' if len(snake.sprites()) > 1 else 'Solo'
             status['state'] = scorestr
-            RPC.update(**status)
+            if RPC:
+                RPC.update(**status)
         SCREEN.fill((0, 0, 0))
         snake.update()
         trail.update()
@@ -261,4 +270,6 @@ try:
         frames += 1
 finally:
     pygame.quit()
-    RPC.close()
+    if RPC:
+        RPC.clear()
+        RPC.close()
