@@ -35,6 +35,7 @@ SN_D = 'd'
 BIGAPPLE_TIME = 8 * FPS
 DEDAPPLE_FREQ = 6
 PID = getpid()
+GID = sha256((str(PID) + str(time.time())).encode('ascii')).hexdigest()
 
 class Snake(pygame.sprite.Sprite):
     def __init__(self, sid=0):
@@ -160,7 +161,7 @@ trail = pygame.sprite.RenderPlain()
 apple = pygame.sprite.RenderPlain(Apple())
 thebigapple = BigApple()
 frames = 0
-if sys.platform == 'win32':
+if sys.platform.startswith('win32'):
     loop = asyncio.ProactorEventLoop()
 else:
     loop = asyncio.get_event_loop()
@@ -227,12 +228,12 @@ async def party():
     SCREEN.fill((0, 0, 0))
     mktext(SCREEN, 'Connecting...', (0, 0))
     pygame.display.flip()
-    path = sha256((str(time.time()) + str(PID)).encode('ascii')).hexdigest()
+    path = GID
     ws = await websockets.connect('ws://localhost:8080/party/{}'.format(path))
     status['state'] = 'In Lobby'
-    status['party_id'] = str(PID)
+    status['party_id'] = GID
     status['party_size'] = [1, 2]
-    status['join'] = '{} {}'.format(PID, path)
+    status['join'] = ''.join(chr(ord(i) + 1) for i in GID)
     await RPC.set_activity(**status)
     #wait for events
     fut = loop.create_future()
@@ -240,13 +241,13 @@ async def party():
         #discord says: joined party
         print('handler:', deeta)
         secret = deeta['secret']
-        status['party_id'] = secret.split()[0]
+        status['party_id'] = ''.join(chr(ord(i) - 1) for i in secret)
         status['party_size'][0] += 1
         status['party_size'][1] += 1
         status['join'] = secret
         nonlocal path
         fut.set_result('joined other')
-        path = secret.split()[1]
+        path = status['party_id']
     async def wait_ws():
         try:
             await ws.recv()
@@ -283,33 +284,52 @@ async def party():
     await RPC.set_activity(**status)
     #wait for events
     ready = False
-    fut = loop.create_future()
-    async def wait_start():
+    startable = False
+    readied = 0
+    async def wait_start(fut):
+        nonlocal readied, startable
         async for msg in ws:
-            if not msg.startswith('start: '):
-                continue
-            #server says: time to start
-            fut.set_result(msg[7:])
-    loop.create_task(wait_start())
+            if msg.startswith('start: '):
+                fut.set_result(msg[len('start: '):])
+                return
+            elif msg in {'startable', 'unstartable'}:
+                startable = msg == 'startable'
+            elif msg.startswith('ready: '):
+                readied = int(msg[len('ready: '):])
+            else:
+                status['party_size'][0] = int(msg)
+                status['party_size'][1] = status['party_size'][0] + 1
+                await RPC.set_activity(**status)
+    startable = False
+    fut = loop.create_future()
+    loop.create_task(wait_start(fut))
     while not fut.done():
         for event in pygame.event.get():
             if event.type == QUIT:
                 await ws.close()
                 RPC.close()
                 raise SystemExit
-            if event.type == KEYDOWN and event.key == K_r:
-                if not ready:
-                    ready = True
-                    await ws.send('ready')
-                else:
-                    ready = False
-                    await ws.send('unready')
+            if event.type == KEYDOWN:
+                if event.key == K_SPACE:
+                    if not ready:
+                        ready = True
+                        await ws.send('ready')
+                    elif startable:
+                        await ws.send('start')
+                elif event.key == K_ESCAPE:
+                    if ready:
+                        ready = False
+                        await ws.send('unready')
         SCREEN.fill((0, 0, 0))
-        mktext(SCREEN,
-            'Press R to ready up!'
-            if not ready
-            else 'Press R to unready if needed',
-        (0, 0))
+        if ready:
+            if startable:
+                text = 'Press Space to start the game!'
+            else:
+                text = 'Waiting for {} players to ready up... \
+Press Escape to unready if needed'
+        else:
+            text = 'Press Space to ready up!'
+        mktext(SCREEN, text, (0, 0))
         pygame.display.flip()
         await asyncio.sleep(1/FPS)
     await ws.close()
@@ -445,19 +465,20 @@ async def main():
     try:
         while 1:
             MODE = await intro()
-            if MODE == 1:
-                solo()
-            elif MODE == 2:
-                local()
+            if MODE - 2 <= 0:
+                return True
             elif MODE == 3:
                 path = await party()
                 print('path:', path)
-                async with websockets.connect('ws://localhost:8080/game/{}'.format(path)) as s:
-                    done, pending = await asyncio.wait(
-                        (game(s), sock(s)), return_when=asyncio.FIRST_COMPLETED
-                    )
-                    for task in pending:
-                        task.cancel()
+                try:
+                    async with websockets.connect('ws://localhost:8080/game/{}'.format(path)) as s:
+                        done, pending = await asyncio.wait(
+                            (game(s), sock(s)), return_when=asyncio.FIRST_COMPLETED
+                        )
+                        for task in pending:
+                            task.cancel()
+                except ConnectionRefusedError:
+                    continue
             cont = False
             SCREEN.fill((0, 0, 0))
             mktext(SCREEN, 'Game End!', (0, 0))
@@ -475,9 +496,11 @@ async def main():
                         break
                 await asyncio.sleep(1/FPS)
     finally:
-        RPC.close()
+        if RPC:
+            RPC.close()
 try:
-    loop.run_until_complete(main())
+    if loop.run_until_complete(main()):
+        import snake
 finally:
     loop.stop()
     pygame.quit()

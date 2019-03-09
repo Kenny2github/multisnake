@@ -15,6 +15,11 @@ parties = {}
 BLOCW, BLOCH = 20, 20
 WIDTH, HEIGHT = 60 * BLOCW, 35 * BLOCH
 
+def randw():
+    return random.randint(0, WIDTH / BLOCW) * BLOCW
+def randh():
+    return random.randint(0, HEIGHT / BLOCH) * BLOCH
+
 @contextmanager
 def newsock(s, path, d=connections):
     if path not in d:
@@ -43,12 +48,7 @@ async def echo(request):
 @contextmanager
 def newgame(s, path):
     if path not in games:
-        games[path] = {'socks': set(), 'pids': set(), 'apples': [
-            (random.randint(0, WIDTH - 1) // BLOCW * BLOCW,
-            random.randint(0, HEIGHT - 1) // BLOCH * BLOCH),
-            (random.randint(0, WIDTH - 1) // (BLOCW * 2) * (BLOCW * 2),
-            random.randint(0, HEIGHT - 1) // (BLOCH * 2) * (BLOCH * 2))
-        ]}
+        raise aiohttp.web.HTTPNotFound
     games[path]['socks'].add(s)
     try:
         yield s
@@ -81,21 +81,12 @@ async def game(request):
                 except KeyError:
                     pass
             if deeta.startswith('a'):
-                games[path]['apples'][0] = (
-                    random.randint(0, WIDTH - 1)
-                    // BLOCW * BLOCW,
-                    random.randint(0, HEIGHT - 1)
-                    // BLOCH * BLOCH
-                )
+                games[path]['apples'][0] = (randw(), randh())
                 deeta += ' {} {}'.format(*games[path]['apples'][0])
             elif deeta.startswith('b'):
                 games[path]['apples'][1] = (
-                    random.randint(0, WIDTH - 1)
-                    // (BLOCW * 2)
-                    * (BLOCW * 2),
-                    random.randint(0, HEIGHT - 1)
-                    // (BLOCW * 2)
-                    * (BLOCW * 2)
+                    randw() // 2 * 2,
+                    randh() // 2 * 2
                 )
                 deeta += ' {} {}'.format(*games[path]['apples'][1])
             for s in games[path]['socks']:
@@ -106,15 +97,14 @@ async def game(request):
 @contextmanager
 def partysock(s, path):
     if path not in parties:
-        parties[path] = {'socks': set(), 'size': 0, 'ready': 0}
+        parties[path] = {'owner': s, 'socks': set(), 'ready': 0}
     parties[path]['socks'].add(s)
-    parties[path]['size'] += 1
     try:
         yield s
     finally:
         if path in parties:
             parties[path]['socks'].remove(s)
-            if not parties[path]['size']:
+            if not parties[path]['socks']:
                 del parties[path]
 
 async def party(request):
@@ -123,11 +113,12 @@ async def party(request):
     await ws.prepare(request)
     path = request.match_info['path']
     #PID = (await ws.receive_str())[5:]
+    startable = False
     with partysock(ws, path):
         for s in parties[path]['socks']:
             #tell clients
             if s != ws:
-                await s.send_str('joined')
+                await s.send_str(str(len(parties[path]['socks'])))
         async for msg in ws:
             if msg.type != aiohttp.WSMsgType.TEXT:
                 continue
@@ -136,13 +127,27 @@ async def party(request):
                 parties[path]['ready'] += 1
             elif msg.data == 'unready':
                 parties[path]['ready'] -= 1
-            #all ready?
-            if parties[path]['ready'] == parties[path]['size']:
+            for s in parties[path]['socks']:
+                await s.send_str('ready: {}'.format(parties[path]['ready']))
+            if msg.data == 'start' and ws == parties[path]['owner'] and startable:
+                gameroom = sha256((str(time.time()) + path).encode('ascii')).hexdigest()
+                games[gameroom] = {
+                    'socks': set(),
+                    'apples': (
+                        (randw(), randh()),
+                        (randw() // 2 * 2, randh() // 2 * 2)
+                    ),
+                    'pids': set()
+                }
                 for s in parties[path]['socks']:
-                    #tell clients
-                    await s.send_str('start: ' + sha256(
-                        (str(time.time()) + path).encode('ascii')
-                    ).hexdigest())
+                    await s.send_str(gameroom)
+            #all ready?
+            if parties[path]['ready'] == len(parties[path]['socks']):
+                parties[path]['owner'].send_str('startable')
+                startable = True
+            elif startable:
+                parties[path]['owner'].send_str('unstartable')
+                startable = False
     return ws
 
 async def party_size(request):

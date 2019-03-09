@@ -251,7 +251,7 @@ try:
                 apple.add(thebigapple)
         if frames % FPS == 0:
             status['details'] = 'Competitive' if len(snake.sprites()) > 1 else 'Solo'
-            status['state'] = scorestr
+            status['state'] = scorestr or 'No players'
             if RPC:
                 RPC.update(**status)
         SCREEN.fill((0, 0, 0))
