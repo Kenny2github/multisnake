@@ -1,3 +1,4 @@
+import sys
 import time
 import random
 from os import getpid
@@ -17,7 +18,6 @@ KEYS = [[K_UP, K_DOWN, K_LEFT, K_RIGHT],
     [K_w, K_s, K_a, K_d]]
 KEYS_OCC = set((0,))
 BIGAPPLE_TIME = 8 * FPS
-DEDAPPLE_FREQ = 6
 
 class Snake(pygame.sprite.Sprite):
     def __init__(self, sid=0):
@@ -46,15 +46,6 @@ class Snake(pygame.sprite.Sprite):
             self.direction = SN_D
         elif keys[KEYS[self.id][2]] and self.direction != SN_R:
             self.direction = SN_L
-        else:
-            if (keys[KEYS[self.id][0]] and self.direction == SN_D \
-                    or keys[KEYS[self.id][3]] and self.direction == SN_L \
-                    or keys[KEYS[self.id][1]] and self.direction == SN_U \
-                    or keys[KEYS[self.id][2]] and self.direction == SN_R) and self.len > 0:
-                trail.add(Mine((self.rect.x, self.rect.y),
-                        self.direction,
-                        self.len))
-                self.len -= 1
         if self.direction == SN_D:
             self.rect.y += BLOCH
         elif self.direction == SN_U:
@@ -87,25 +78,11 @@ class Apple(pygame.sprite.Sprite):
         self.rect = self.image.get_rect()
         self.rect.x = random.randint(0, WIDTH - 1) // BLOCW * BLOCW
         self.rect.y = random.randint(0, HEIGHT - 1) // BLOCH * BLOCH
-        self.poison = False
-        self.poisonlen = 0
 
     def update(self):
         global snake
-        if self.poison:
-            self.poisonlen += 1
-        if self.poisonlen > BIGAPPLE_TIME:
-            self.poison = False
-            self.poisonlen = 0
-            self.image.fill((255, 0, 0))
         for snak in pygame.sprite.spritecollide(self, snake, False):
-            snak.len += (-1 if self.poison else 1)
-            self.poison = random.randint(0, DEDAPPLE_FREQ) == 1
-            if self.poison:
-                self.image.fill((192, 0, 0))
-            else:
-                self.image.fill((255, 0, 0))
-            self.poisonlen = 0
+            snak.len += 1
             self.rect.x = random.randint(0, WIDTH - 1) // BLOCW * BLOCW
             self.rect.y = random.randint(0, HEIGHT - 1) // BLOCH * BLOCH
 
@@ -132,38 +109,6 @@ class BigApple(pygame.sprite.Sprite):
         if collides:
             self.kill()
 
-class Mine(pygame.sprite.Sprite):
-    def __init__(self, pos, direction, leng):
-        super(type(self), self).__init__()
-        self.direction = direction
-        self.len = leng
-        self.pos = list(pos)
-        self.image = pygame.Surface(BLOCS)
-        self.image.fill((255, 255, 255))
-        self.rect = self.image.get_rect()
-        self.rect.x, self.rect.y = pos
-        self.done = False
-        self.life = BIGAPPLE_TIME
-
-    def update(self):
-        if self.len <= 0 and not self.done:
-            if self.direction in (SN_R, SN_L):
-                self.image = pygame.Surface((BLOCW, BLOCH * 3))
-                self.pos[1] -= BLOCH
-            else:
-                self.image = pygame.Surface((BLOCW * 3, BLOCH))
-                self.pos[0] -= BLOCW
-            self.image.fill((255, 255, 255))
-            self.rect = self.image.get_rect()
-            self.rect.x, self.rect.y = self.pos
-            self.done = True
-        elif self.len <= 0:
-            self.life -= 1
-            if self.life <= 0:
-                self.kill()
-        else:
-            self.len -= 1
-
 pygame.init()
 SCREEN = pygame.display.set_mode(SIZE)
 snake = pygame.sprite.RenderPlain(Snake(0))
@@ -172,7 +117,7 @@ apple = pygame.sprite.RenderPlain(Apple())
 thebigapple = BigApple()
 clock = pygame.time.Clock()
 frames = 0
-RPC = Presence('511398745057787905')
+RPC = Presence('511398745057787905', pipe=sys.argv[1] if len(sys.argv) > 1 else 0)
 try:
     RPC.connect()
 except (AttributeError, InvalidPipe):
@@ -190,10 +135,9 @@ try:
     SCREEN.fill((0, 0, 0))
     mktext(SCREEN, 'Space to spawn a new snake.', (0, 0))
     mktext(SCREEN, 'Controls for first two snakes are arrow keys and WASD.', (0, BLOCH))
-    mktext(SCREEN, 'Attempt to move backwards to make a landmine and subtract your length.', (0, BLOCH * 2))
-    mktext(SCREEN, 'If you hit anything white except a snake head you die.', (0, BLOCH * 3))
-    mktext(SCREEN, 'At any point, Escape or close the window to quit.', (0, BLOCH * 4))
-    mktext(SCREEN, 'Space to continue. Watch out for poison apples.', (0, BLOCH * 5))
+    mktext(SCREEN, 'If you hit anything white except a snake head you die.', (0, BLOCH * 2))
+    mktext(SCREEN, 'At any point, Escape or close the window to quit.', (0, BLOCH * 3))
+    mktext(SCREEN, 'Space to continue.', (0, BLOCH * 4))
     pygame.display.flip()
     while 1:
         for e in pygame.event.get():
@@ -271,5 +215,4 @@ try:
 finally:
     pygame.quit()
     if RPC:
-        RPC.clear()
         RPC.close()

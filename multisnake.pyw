@@ -4,6 +4,7 @@ from os import getpid
 import asyncio
 import sys
 import time
+import json
 #mid-level
 from hashlib import sha256
 from contextlib import suppress
@@ -28,14 +29,21 @@ warnings.showwarning = warn_with_traceback
 BLOCS = BLOCW, BLOCH = 20, 20
 SIZE = WIDTH, HEIGHT = 60 * BLOCW, 35 * BLOCH
 FPS = 25
-SN_L = 'l'
-SN_R = 'r'
-SN_U = 'u'
-SN_D = 'd'
+SN_L = '<'
+SN_R = '>'
+SN_U = '^'
+SN_D = 'v'
 BIGAPPLE_TIME = 8 * FPS
 DEDAPPLE_FREQ = 6
 PID = getpid()
+MID = -1
 GID = sha256((str(PID) + str(time.time())).encode('ascii')).hexdigest()
+
+def m(*a):
+    return json.dumps(a)
+
+def n(s):
+    return json.loads(s)
 
 class Snake(pygame.sprite.Sprite):
     def __init__(self, sid=0):
@@ -95,7 +103,8 @@ class Apple(pygame.sprite.Sprite):
             self.image.fill((255, 0, 0))
             #self.rect.x = random.randint(0, WIDTH - 1) // BLOCW * BLOCW
             #self.rect.y = random.randint(0, HEIGHT - 1) // BLOCH * BLOCH
-            await ws.send('{} {} {}'.format('a', PID, snak.id))
+            if snak.id == MID:
+                await ws.send(m('a'))
             break
 
 class BigApple(pygame.sprite.Sprite):
@@ -119,40 +128,9 @@ class BigApple(pygame.sprite.Sprite):
             #        // (BLOCH * 2) \
             #        * (BLOCH * 2)
             self.kill()
-            await ws.send('{} {} {}'.format('b', PID, snak.id))
+            if snak.id == MID:
+                await ws.send(m('b'))
             break
-
-class Mine(pygame.sprite.Sprite):
-    def __init__(self, pos, direction, leng):
-        super(type(self), self).__init__()
-        self.direction = direction
-        self.len = leng
-        self.pos = list(pos)
-        self.image = pygame.Surface(BLOCS)
-        self.image.fill((255, 255, 255))
-        self.rect = self.image.get_rect()
-        self.rect.x, self.rect.y = pos
-        self.done = False
-        self.life = BIGAPPLE_TIME
-
-    def update(self):
-        if self.len <= 0 and not self.done:
-            if self.direction in (SN_R, SN_L):
-                self.image = pygame.Surface((BLOCW, BLOCH * 3))
-                self.pos[1] -= BLOCH
-            else:
-                self.image = pygame.Surface((BLOCW * 3, BLOCH))
-                self.pos[0] -= BLOCW
-            self.image.fill((255, 255, 255))
-            self.rect = self.image.get_rect()
-            self.rect.x, self.rect.y = self.pos
-            self.done = True
-        elif self.len <= 0:
-            self.life -= 1
-            if self.life <= 0:
-                self.kill()
-        else:
-            self.len -= 1
 
 pygame.init()
 SCREEN = pygame.display.set_mode(SIZE)
@@ -203,7 +181,7 @@ async def intro():
     SCREEN.fill((0, 0, 0))
     mktext(SCREEN, 'If you hit anything white except a snake head you die.', (0, 0))
     mktext(SCREEN, 'At any point, Escape or close the window to quit.', (0, BLOCH))
-    mktext(SCREEN, 'Press 1 for solo snake. Press 2 for local/Press 3 for online multiplayer.', (0, BLOCH * 2))
+    mktext(SCREEN, 'Press 1 for solo snake or local multiplayer.' + (' Press 2 for online multiplayer.' if RPC is not None else ''), (0, BLOCH * 2))
     pygame.display.flip()
     while 1:
         for e in pygame.event.get():
@@ -212,10 +190,8 @@ async def intro():
             if e.type == KEYDOWN:
                 if e.key == K_1:
                     MODE = 1
-                elif e.key == K_2:
+                elif e.key == K_2 and RPC is not None:
                     MODE = 2
-                elif e.key == K_3:
-                    MODE = 3
                 else:
                     continue
                 return MODE
@@ -257,14 +233,16 @@ async def party():
     loop.create_task(wait_ws())
     await RPC.register_event('ACTIVITY_JOIN', handler)
     SCREEN.fill((0, 0, 0))
-    mktext(SCREEN, 'Waiting for party member...', (0, 0))
+    mktext(SCREEN, "Waiting for party member. Go onto Discord and join someone's party or invite people to yours!", (0, 0))
     pygame.display.flip()
     while not fut.done():
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                await ws.close()
-                RPC.close()
-                return
+                try:
+                    await ws.close()
+                    RPC.close()
+                finally:
+                    raise SystemExit
         await asyncio.sleep(1/FPS)
     print(status)
     if fut.result() == 'other joined': #server says: member joined
@@ -300,15 +278,17 @@ async def party():
                 status['party_size'][0] = int(msg)
                 status['party_size'][1] = status['party_size'][0] + 1
                 await RPC.set_activity(**status)
-    startable = False
+            print(msg, ready, startable, readied, sep=', ')
     fut = loop.create_future()
     loop.create_task(wait_start(fut))
     while not fut.done():
         for event in pygame.event.get():
             if event.type == QUIT:
-                await ws.close()
-                RPC.close()
-                raise SystemExit
+                try:
+                    await ws.close()
+                    RPC.close()
+                finally:
+                    raise SystemExit
             if event.type == KEYDOWN:
                 if event.key == K_SPACE:
                     if not ready:
@@ -324,9 +304,11 @@ async def party():
         if ready:
             if startable:
                 text = 'Press Space to start the game!'
+            elif status['party_size'][0] == readied:
+                text = 'Waiting for party leader to start the game...'
             else:
                 text = 'Waiting for {} players to ready up... \
-Press Escape to unready if needed'
+Press Escape to unready if needed'.format(status['party_size'][0] - readied)
         else:
             text = 'Press Space to ready up!'
         mktext(SCREEN, text, (0, 0))
@@ -345,8 +327,7 @@ def getpbyid(gp, pid):
             return p
 
 async def game(ws):
-    global frames, SCREEN, snake, trail, apple, thebigapple, meh
-    await ws.send('{} {}'.format('+', PID))
+    global frames, SCREEN, snake, trail, apple, thebigapple, meh, MID
     status['start'] = int(time.time())
     while 1:
         scorestr = ''
@@ -361,34 +342,29 @@ async def game(ws):
         pygame.display.set_caption(scorestr)
         for e in pygame.event.get():
             if e.type == QUIT or e.type == KEYDOWN and e.key == K_ESCAPE:
-                RPC.close()
-                with suppress(websockets.ConnectionClosed):
-                    await ws.send('{} {}'.format('x', PID))
-                return
+                try:
+                    RPC.close()
+                    await ws.close()
+                finally:
+                    raise SystemExit
             if e.type == KEYDOWN:
                 with suppress(websockets.ConnectionClosed):
                     if e.key == K_UP and meh.direction != SN_D:
-                        await ws.send('{} {} {} {} {}'.format(
-                            'd', PID, SN_U, meh.rect.x, meh.rect.y
-                        ))
+                        asyncio.create_task(ws.send(m(
+                            'd', SN_U, meh.rect.x, meh.rect.y - BLOCH
+                        )))
                     elif e.key == K_DOWN and meh.direction != SN_U:
-                        await ws.send('{} {} {} {} {}'.format(
-                            'd', PID, SN_D, meh.rect.x, meh.rect.y
-                        ))
+                        asyncio.create_task(ws.send(m(
+                            'd', SN_D, meh.rect.x, meh.rect.y + BLOCH
+                        )))
                     elif e.key == K_LEFT and meh.direction != SN_R:
-                        await ws.send('{} {} {} {} {}'.format(
-                            'd', PID, SN_L, meh.rect.x, meh.rect.y
-                        ))
+                        asyncio.create_task(ws.send(m(
+                            'd', SN_L, meh.rect.x - BLOCW, meh.rect.y
+                        )))
                     elif e.key == K_RIGHT and meh.direction != SN_L:
-                        await ws.send('{} {} {} {} {}'.format(
-                            'd', PID, SN_R, meh.rect.x, meh.rect.y
-                        ))
-        if frames % BIGAPPLE_TIME == 0 and str(PID) == status['party_id']:
-            with suppress(websockets.ConnectionClosed):
-                if apple.has(thebigapple):
-                    await ws.send('{} {} {}'.format('b', PID, 0))
-                else:
-                    await ws.send('{} {}'.format('B', PID))
+                        asyncio.create_task(ws.send(m(
+                            'd', SN_R, meh.rect.x + BLOCW, meh.rect.y
+                        )))
         if frames % FPS == 0:
             status['details'] = 'Competitive' if len(snake.sprites()) > 1 else 'Solo'
             status['state'] = scorestr or 'No players'
@@ -403,8 +379,9 @@ async def game(ws):
         for snak in snake:
             if pygame.sprite.spritecollide(snak, trail, False):
                 snak.kill()
-                with suppress(websockets.ConnectionClosed):
-                    await ws.send('{} {}'.format('x', snak.id))
+                if snak.id == MID:
+                    await ws.close()
+                    return
         snake.draw(SCREEN)
         trail.draw(SCREEN)
         apple.draw(SCREEN)
@@ -413,50 +390,51 @@ async def game(ws):
         frames += 1
 
 async def sock(ws):
-    global meh
+    global meh, MID
     try:
         async for msg in ws:
-            cmd, pid, *args = msg.split()
-            pid = int(pid)
-            if 1:#cmd in {'+', 'x'}:
-                print(cmd, pid, *args)
+            print(msg)
+            msg = n(msg)
+            cmd, pid, *args = msg
             if cmd == '+':
                 snak = Snake(pid)
-                if pid == PID:
+                if MID == -1:
                     meh = snak
+                    MID = pid
                 else:
                     status['party_size'][0] += 1
                     status['party_size'][1] += 1
                 snake.add(snak)
-            elif cmd == 'x':
+            elif cmd == '-':
                 snak = getpbyid(snake, pid)
                 if snak:
                     snak.kill()
                 status['party_size'][0] -= 1
                 status['party_size'][1] -= 1
-                if pid == PID:
+                if pid == MID:
                     return
             elif cmd == 'd':
                 snak = getpbyid(snake, pid)
                 if snak:
                     snak.direction = args[0]
-                    snak.rect.x, snak.rect.y = map(int, args[1:])
+                    if pid != MID:
+                        snak.rect.x, snak.rect.y = args[1:]
             elif cmd == 'a':
                 for spr in apple:
-                    if isinstance(spr, Apple):
+                    if isinstance(spr, Apple): #?
                         leapp = spr
                         break
-                leapp.rect.x, leapp.rect.y = map(int, args[1:])
-                snak = getpbyid(snake, int(args[0]))
+                leapp.rect.x, leapp.rect.y = args[1:]
+                snak = getpbyid(snake, pid)
                 if snak:
-                    snak.len += 1
-            elif cmd == 'b' and (pid == 0 or str(pid) == status['party_id']):
+                    snak.len = args[0]
+            elif cmd == 'b':
                 thebigapple.kill()
-                thebigapple.rect.x, thebigapple.rect.y = map(int, args[1:])
-                snak = getpbyid(snake, int(args[0]))
+                snak = getpbyid(snake, pid)
                 if snak:
-                    snak.len += 4
-            elif cmd == 'B' and str(pid) == status['party_id']:
+                    snak.len = args[0]
+            elif cmd == 'B':
+                thebigapple.rect.x, thebigapple.rect.y = args
                 apple.add(thebigapple)
     except websockets.ConnectionClosed:
         return
@@ -465,11 +443,12 @@ async def main():
     try:
         while 1:
             MODE = await intro()
-            if MODE - 2 <= 0:
+            if MODE == 1:
                 return True
-            elif MODE == 3:
+            elif MODE == 2 and RPC is not None:
                 path = await party()
                 print('path:', path)
+                status['party_id'] = path
                 try:
                     async with websockets.connect('ws://localhost:8080/game/{}'.format(path)) as s:
                         done, pending = await asyncio.wait(
