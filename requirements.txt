@@ -1,2 +1,4 @@
 pygame
-pypresence
+pypresence==3.3.0
+websockets
+aiohttp

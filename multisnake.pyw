@@ -38,6 +38,7 @@ DEDAPPLE_FREQ = 6
 PID = getpid()
 MID = -1
 GID = sha256((str(PID) + str(time.time())).encode('ascii')).hexdigest()
+SERV = sys.argv[2] if len(sys.argv) > 2 else 'localhost'
 
 def m(*a):
     return json.dumps(a)
@@ -205,7 +206,7 @@ async def party():
     mktext(SCREEN, 'Connecting...', (0, 0))
     pygame.display.flip()
     path = GID
-    ws = await websockets.connect('ws://localhost:8080/party/{}'.format(path))
+    ws = await websockets.connect('ws://' + SERV + ':8080/party/{}'.format(path))
     status['state'] = 'In Lobby'
     status['party_id'] = GID
     status['party_size'] = [1, 2]
@@ -253,9 +254,9 @@ async def party():
         await ws.close() #disconnect
         #join party server with secret
         ws = await websockets.connect(
-            'ws://localhost:8080/party/{}'.format(path)
+            'ws://' + SERV + ':8080/party/{}'.format(path)
         )
-        async with session.get('http://localhost:8080/party_size/{}'.format(path)) as resp:
+        async with session.get('http://' + SERV + ':8080/party_size/{}'.format(path)) as resp:
             assert resp.status == 200
             status['party_size'][0] = int(await resp.text())
             status['party_size'][1] = status['party_size'][0] + 1
@@ -351,19 +352,19 @@ async def game(ws):
                 with suppress(websockets.ConnectionClosed):
                     if e.key == K_UP and meh.direction != SN_D:
                         asyncio.create_task(ws.send(m(
-                            'd', SN_U, meh.rect.x, meh.rect.y - BLOCH
+                            'd', SN_U, meh.rect.x, meh.rect.y
                         )))
                     elif e.key == K_DOWN and meh.direction != SN_U:
                         asyncio.create_task(ws.send(m(
-                            'd', SN_D, meh.rect.x, meh.rect.y + BLOCH
+                            'd', SN_D, meh.rect.x, meh.rect.y
                         )))
                     elif e.key == K_LEFT and meh.direction != SN_R:
                         asyncio.create_task(ws.send(m(
-                            'd', SN_L, meh.rect.x - BLOCW, meh.rect.y
+                            'd', SN_L, meh.rect.x, meh.rect.y
                         )))
                     elif e.key == K_RIGHT and meh.direction != SN_L:
                         asyncio.create_task(ws.send(m(
-                            'd', SN_R, meh.rect.x + BLOCW, meh.rect.y
+                            'd', SN_R, meh.rect.x, meh.rect.y
                         )))
         if frames % FPS == 0:
             status['details'] = 'Competitive' if len(snake.sprites()) > 1 else 'Solo'
@@ -376,12 +377,9 @@ async def game(ws):
         for spr in apple:
             with suppress(websockets.ConnectionClosed):
                 await spr.update(ws)
-        for snak in snake:
-            if pygame.sprite.spritecollide(snak, trail, False):
-                snak.kill()
-                if snak.id == MID:
-                    await ws.close()
-                    return
+        if MID != -1 and pygame.sprite.spritecollideany(meh, trail):
+            await ws.close()
+            return
         snake.draw(SCREEN)
         trail.draw(SCREEN)
         apple.draw(SCREEN)
@@ -450,7 +448,7 @@ async def main():
                 print('path:', path)
                 status['party_id'] = path
                 try:
-                    async with websockets.connect('ws://localhost:8080/game/{}'.format(path)) as s:
+                    async with websockets.connect('ws://' + SERV + ':8080/game/{}'.format(path)) as s:
                         done, pending = await asyncio.wait(
                             (game(s), sock(s)), return_when=asyncio.FIRST_COMPLETED
                         )
